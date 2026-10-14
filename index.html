@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Gyro · Hopf + Knopen & Volledige Besturing</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#e6e6e6;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial;overflow:hidden}
+  #cv{position:fixed;inset:0;display:block;width:100vw;height:100vh;touch-action:none}
+  #ui{position:fixed;left:10px;top:10px;z-index:10;background:#000c;border:1px solid #ffffff33;border-radius:10px;padding:8px 10px;font-size:12px;backdrop-filter:blur(8px);max-height:92vh;overflow-y:auto;width:min(90vw,400px)}
+  #ui .row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  #ui label{display:grid;grid-template-columns:auto 110px auto;gap:6px;align-items:center;font-size:11px}
+  #ui input[type=range]{width:110px}
+  #ui select,#ui button{min-height:30px;background:#181818;border:1px solid #ffffff33;color:#fff;border-radius:6px;padding:3px 8px;cursor:pointer}
+  #ui button:hover{background:#282828}
+  #ui .btnActive{background:#1a4477;border-color:#4499ff}
+  #ui .val{font:11px ui-monospace,Menlo,Consolas,monospace;opacity:.9;min-width:44px;text-align:right;user-select:none;cursor:pointer}
+  #msg{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:9;display:none;background:#111;border:1px solid #ffffff44;border-radius:8px;padding:6px 12px;font-size:12px}
+  #err{position:fixed;right:10px;top:10px;z-index:20;display:none;background:#200;border:1px solid #f66;border-radius:10px;padding:8px 10px;font-size:12px;white-space:pre-wrap;max-width:min(90vw,520px)}
+  .hide{display:none!important}
+  .clean #ui,.clean #msg,.clean #err{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="ui">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <b>Gyro · Hopf & Knoopdynamica</b>
+    <button id="btnCleanToggle" style="font-size:10px;padding:2px 6px">Verberg UI</button>
+  </div>
+
+  <div class="row">
+    <button id="btnPause" style="flex:1;font-weight:bold">Pauze</button>
+    <button id="btnReverse">Keer om ⇄</button>
+    <button id="btnFS">Fullscreen ⛶</button>
+  </div>
+
+  <div class="row">
+    <button id="btnKick" style="flex:1">Impuls +</button>
+    <button id="btnReset" style="flex:1">Reset nul</button>
+  </div>
+
+  <div class="row">
+    <label>Geometrie
+      <select id="geom">
+        <option value="hopf" selected>Hopf Fibration (4D)</option>
+        <option value="concentric">Concentric (Gyroscoop)</option>
+      </select>
+      <span></span>
+    </label>
+    <label>Textuur
+      <select id="tex">
+        <option value="camWrap" selected>Camera (wrap)</option>
+        <option value="imageWrap">Afbeelding (wrap)</option>
+        <option value="spectrum">Spectrum</option>
+      </select>
+      <span></span>
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Afbeelding <input id="img" type="file" accept="image/*"><span></span></label>
+    <button id="btnCam">Stop camera</button>
+    <label>Lens
+      <select id="camFacing"><option value="user" selected>Voor</option><option value="environment">Achter</option></select>
+      <span></span>
+    </label>
+  </div>
+
+  <div class="row" style="background:#ffffff0a;padding:4px;border-radius:6px">
+    <label><b>Knopen / Speling</b> <input id="slKnot" type="range" min="0" max="1.5" step="0.01" value="0.70"><span class="val" id="valKnot">0.70</span></label>
+    <label>Koppeling κ <input id="slK" type="range" min="0" max="0.5" step="0.01" value="0.16"><span class="val" id="valK">0.16</span></label>
+    <label>Ruis ξ (chaos) <input id="slR" type="range" min="0" max="0.08" step="0.002" value="0.02"><span class="val" id="valR">0.02</span></label>
+    <label>Demping γ <input id="slD" type="range" min="0" max="0.8" step="0.01" value="0.18"><span class="val" id="valD">0.18</span></label>
+  </div>
+
+  <div class="row" style="background:#ffffff0a;padding:4px;border-radius:6px">
+    <label>Auto-reverse <input id="chkRev" type="checkbox" checked><span></span></label>
+    <label>T-rev pendel (s) <input id="slTrev" type="range" min="2" max="25" step="0.5" value="8.0"><span class="val" id="valTrev">8.0</span></label>
+    <label>Elastisch nulpunt <input id="chkRew" type="checkbox" checked><span></span></label>
+    <label>Veerkracht K_rw <input id="slRew" type="range" min="0" max="5" step="0.05" value="1.20"><span class="val" id="valRew">1.20</span></label>
+  </div>
+
+  <div class="row">
+    <label>Drive aan <input id="chkDrive" type="checkbox" checked><span></span></label>
+    <label>Drive-as
+      <select id="ax">
+        <option value="z" selected>Z (Torsie)</option>
+        <option value="x">X (Kanteling)</option>
+        <option value="y">Y (Draaiing)</option>
+      </select>
+      <span></span>
+    </label>
+    <label>Motor ω_drive <input id="slW" type="range" min="-4" max="4" step="0.05" value="1.20"><span class="val" id="valW">1.20</span></label>
+    <label>Motor Gain <input id="slG" type="range" min="0" max="6" step="0.1" value="2.0"><span class="val" id="valG">2.0</span></label>
+  </div>
+
+  <div class="row">
+    <label>Ringen N <input id="slN" type="range" min="40" max="450" step="5" value="180"><span class="val" id="valN">180</span></label>
+    <label>SEG <input id="slSeg" type="range" min="64" max="360" step="4" value="180"><span class="val" id="valSeg">180</span></label>
+    <label>Vlakgrootte <input id="slChunk" type="range" min="1" max="16" step="1" value="2"><span class="val" id="valChunk">2</span></label>
+    <label>Lijn <input id="slLW" type="range" min="0.8" max="4.0" step="0.1" value="2.0"><span class="val" id="valLW">2.0</span></label>
+    <label>Zoom <input id="slZoom" type="range" min="0.5" max="2.0" step="0.01" value="1.05"><span class="val" id="valZoom">1.05</span></label>
+    <label>Diepte <input id="slDepth" type="range" min="0" max="0.6" step="0.01" value="0.22"><span class="val" id="valDepth">0.22</span></label>
+  </div>
+</div>
+
+<div id="msg"></div>
+<div id="err"></div>
+
+<script>
+(function(){
+  function $(id){return document.getElementById(id)}
+  function showMsg(t){var m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(showMsg._t);showMsg._t=setTimeout(function(){m.style.display='none'},2400)}
+  function se(m){var e=$('err');e.style.display='block';e.textContent='ERROR: '+m}
+  window.onerror=function(m,s,l,c,e){se(m+' @'+(s||'')+':'+(l||0)+':'+(c||0)+(e&&e.stack?('\n'+e.stack):'')); return true}
+
+  var cv=$('cv'), ctx=cv.getContext('2d'), ui=$('ui');
+  var clean=false;
+  function setClean(v){clean=v; document.body.classList.toggle('clean', v)}
+  $('btnCleanToggle').onclick=function(){ setClean(true); };
+  window.addEventListener('keydown', function(e){ if(e.key==='h'||e.key==='H') setClean(!clean); });
+
+  // Fullscreen logica
+  function toggleFullscreen(){
+    var d = document, el = d.documentElement;
+    var isFS = d.fullscreenElement || d.webkitFullscreenElement || d.mozFullScreenElement || d.msFullscreenElement;
+    if (!isFS) {
+      var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+      if (rfs) rfs.call(el);
+    } else {
+      var cfs = d.exitFullscreen || d.webkitExitFullscreen || d.mozCancelFullScreen || d.msExitFullscreen;
+      if (cfs) cfs.call(d);
+    }
+  }
+  $('btnFS').onclick = toggleFullscreen;
+  cv.addEventListener('dblclick', toggleFullscreen, {passive: true});
+
+  function bindVal(id){
+    var el=$(id), v=$('val'+id.replace(/^sl/,''));
+    if(!v)return;
+    function sync(){var step=parseFloat(el.step||'1'); var x=parseFloat(el.value); v.textContent=(step>=1? String(Math.round(x)):(step>=0.1? x.toFixed(1): x.toFixed(2))); }
+    el.addEventListener('input',sync); sync();
+    v.onclick=function(){var min=+el.min||-1e9,max=+el.max||1e9,cur=el.value;var nv=prompt('Waarde ('+min+'..'+max+')',cur); if(nv!==null){var x=parseFloat(nv); if(isFinite(x)){el.value=Math.max(min,Math.min(max,x)); el.dispatchEvent(new Event('input'));}}}
+  }
+  ['slKnot','slK','slR','slD','slTrev','slRew','slW','slG','slN','slSeg','slChunk','slLW','slZoom','slDepth'].forEach(bindVal);
+
+  // Parameters
+  var GEOM=$('geom').value, TEX=$('tex').value;
+  var KNOT=+$('slKnot').value, K=+$('slK').value, RNOISE=+$('slR').value, D=+$('slD').value;
+  var AUTO_REV=$('chkRev').checked, T_REV=+$('slTrev').value;
+  var REWIND=$('chkRew').checked, RW_GAIN=+$('slRew').value;
+  var DRIVE=$('chkDrive').checked, AXIS=$('ax').value, OMEGA=+$('slW').value, GAIN=+$('slG').value;
+  var N=+$('slN').value, SEG=+$('slSeg').value, CHUNK=+$('slChunk').value, LINEW=+$('slLW').value;
+  var ZOOM=+$('slZoom').value, DEPTH=+$('slDepth').value;
+  var paused=false, driveDir=1.0;
+
+  $('geom').onchange=function(e){GEOM=e.target.value; alloc();};
+  $('tex').onchange=function(e){TEX=e.target.value; if(TEX==='camWrap' && !camOn) startCam();};
+  $('slKnot').oninput=function(e){KNOT=+e.target.value};
+  $('slK').oninput=function(e){K=+e.target.value};
+  $('slR').oninput=function(e){RNOISE=+e.target.value};
+  $('slD').oninput=function(e){D=+e.target.value};
+  $('chkRev').onchange=function(e){AUTO_REV=e.target.checked};
+  $('slTrev').oninput=function(e){T_REV=+e.target.value};
+  $('chkRew').onchange=function(e){REWIND=e.target.checked};
+  $('slRew').oninput=function(e){RW_GAIN=+e.target.value};
+  $('chkDrive').onchange=function(e){DRIVE=e.target.checked};
+  $('ax').onchange=function(e){AXIS=e.target.value};
+  $('slW').oninput=function(e){OMEGA=+e.target.value};
+  $('slG').oninput=function(e){GAIN=+e.target.value};
+  $('slN').oninput=function(e){N=+e.target.value; alloc();};
+  $('slSeg').oninput=function(e){SEG=+e.target.value; effSEG=SEG;};
+  $('slChunk').oninput=function(e){CHUNK=+e.target.value};
+  $('slLW').oninput=function(e){LINEW=+e.target.value};
+  $('slZoom').oninput=function(e){ZOOM=+e.target.value};
+  $('slDepth').oninput=function(e){DEPTH=+e.target.value};
+
+  // Besturingsknoppen
+  $('btnPause').onclick=function(){
+    paused = !paused;
+    $('btnPause').textContent = paused ? 'Hervat ▶' : 'Pauze ❚❚';
+    $('btnPause').classList.toggle('btnActive', paused);
+  };
+  $('btnReverse').onclick=function(){
+    driveDir *= -1.0;
+    for(var i=0; i<N; i++){ wv[i][0]*=-1; wv[i][1]*=-1; wv[i][2]*=-1; }
+    showMsg('Richting omgekeerd');
+  };
+  $('btnKick').onclick=function(){ kick(1.4); };
+  $('btnReset').onclick=function(){ reset(); };
+
+  // Pixel cache & sampler
+  var sCan=document.createElement('canvas'), sCtx=sCan.getContext('2d', {willReadFrequently:true});
+  var cachedPixels=null, cachedW=0, cachedH=0, imgDirty=true;
+
+  function syncPixelCache(){
+    if(sCan.width===0 || sCan.height===0){ cachedPixels=null; return; }
+    cachedW=sCan.width; cachedH=sCan.height;
+    cachedPixels=sCtx.getImageData(0,0,cachedW,cachedH).data;
+  }
+
+  var img=null, imgURL=null;
+  $('img').addEventListener('change',function(e){
+    var f=e.target.files&&e.target.files[0]; if(!f)return;
+    if(imgURL) URL.revokeObjectURL(imgURL);
+    img=new Image();
+    img.onload=function(){ URL.revokeObjectURL(imgURL); imgURL=null; imgDirty=true; };
+    imgURL=URL.createObjectURL(f); img.src=imgURL;
+  });
+
+  function refreshSourceFromImage(){
+    if(!img||!img.width) return false;
+    if(imgDirty){
+      sCan.width=512; sCan.height=512;
+      sCtx.drawImage(img,0,0,512,512);
+      syncPixelCache(); imgDirty=false;
+    }
+    return cachedPixels!==null;
+  }
+
+  // Camera setup
+  var vid=document.createElement('video'); vid.autoplay=true; vid.muted=true; vid.playsInline=true;
+  var camOn=false, camStream=null, camReady=false;
+
+  $('camFacing').onchange=function(){ if(camOn){ stopCam(); startCam(); } };
+  $('btnCam').onclick=function(){ if(camOn) stopCam(); else startCam(); };
+
+  function updatePaintFromCam(){
+    if(!camReady || vid.videoWidth===0) return;
+    var S=320, H=Math.round(S * (vid.videoHeight / vid.videoWidth));
+    if(sCan.width!==S || sCan.height!==H){ sCan.width=S; sCan.height=H; }
+    sCtx.save();
+    sCtx.translate(S, 0); sCtx.scale(-1, 1);
+    sCtx.drawImage(vid, 0, 0, S, H);
+    sCtx.restore();
+    syncPixelCache();
+  }
+
+  function cameraFrameLoop(){
+    if(!camOn) return;
+    updatePaintFromCam();
+    if('requestVideoFrameCallback' in vid){ vid.requestVideoFrameCallback(cameraFrameLoop); }
+    else { setTimeout(cameraFrameLoop, 32); }
+  }
+
+  function startCam(){
+    if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){ showMsg('Camera vereist HTTPS of localhost'); return; }
+    navigator.mediaDevices.getUserMedia({video:{facingMode:$('camFacing').value,width:{ideal:640}},audio:false}).then(function(st){
+      camStream=st; camOn=true; vid.srcObject=st;
+      vid.onloadedmetadata=function(){
+        camReady=true; vid.play();
+        cameraFrameLoop();
+        $('btnCam').textContent='Stop camera';
+      }
+    })["catch"](function(e){showMsg('Cam error: '+(e&&e.name?e.name:''));});
+  }
+
+  function stopCam(){
+    if(camStream){var tr=camStream.getTracks(); for(var i=0;i<tr.length;i++) tr[i].stop();}
+    camOn=false; camStream=null; camReady=false; $('btnCam').textContent='Start camera';
+  }
+
+  function sampleRGB_UV(u,v){
+    if(!cachedPixels || cachedW===0 || cachedH===0) return [255,255,255];
+    var xi = Math.max(0, Math.min(cachedW-1, (u*(cachedW-1))|0));
+    var yi = Math.max(0, Math.min(cachedH-1, (v*(cachedH-1))|0));
+    var idx = (yi*cachedW + xi)<<2;
+    return [cachedPixels[idx], cachedPixels[idx+1], cachedPixels[idx+2]];
+  }
+
+  // Wiskunde & fysica (onafhankelijke ring-quaternions)
+  var q=[], wv=[], radii=[];
+  function rnd(a){return (Math.random()*2-1)*a}
+  function qnorm(v){ var n=Math.hypot(v[0],v[1],v[2],v[3])||1; v[0]/=n; v[1]/=n; v[2]/=n; v[3]/=n; }
+  function qstep(qi,w,dt){
+    var x=qi[0],y=qi[1],z=qi[2],wq=qi[3],h=0.5*dt;
+    var dw=(-x*w[0]-y*w[1]-z*w[2])*h, dx=( wq*w[0]+y*w[2]-z*w[1])*h, dy=( wq*w[1]+z*w[0]-x*w[2])*h, dz=( wq*w[2]+x*w[1]-y*w[0])*h;
+    qi[0]=x+dx; qi[1]=y+dy; qi[2]=z+dz; qi[3]=wq+dw; qnorm(qi);
+  }
+  function rotvecToIdentity(qi){
+    var w=qi[3], angle = 2*Math.acos(Math.max(-1,Math.min(1,w)));
+    var s=Math.sqrt(Math.max(1e-12,1-w*w));
+    if(s<1e-6||angle<1e-6) return [0,0,0];
+    var k=angle/s; return [ qi[0]*k, qi[1]*k, qi[2]*k ];
+  }
+  function qrot(qi,v){
+    var x=qi[0],y=qi[1],z=qi[2],w=qi[3];
+    var ux=y*v[2]-z*v[1], uy=z*v[0]-x*v[2], uz=x*v[1]-y*v[0];
+    var vx=ux+w*v[0], vy=uy+w*v[1], vz=uz+w*v[2];
+    return [ v[0]+2*(y*vz-z*vy), v[1]+2*(z*vx-x*vz), v[2]+2*(x*vy-y*vx) ];
+  }
+
+  function radiusOf(i){ var t=(N<=1)?0:(i/(N-1)); return 0.85*(1.0 - 0.90*t); }
+  function buildRadii(){ radii=new Array(N); for(var i=0;i<N;i++) radii[i]=radiusOf(i); }
+
+  function alloc(){
+    q=new Array(N); wv=new Array(N);
+    for(var i=0;i<N;i++){ q[i]=[0,0,0,1]; wv[i]=[rnd(0.04),rnd(0.04),rnd(0.04)]; }
+    buildRadii();
+  }
+  function reset(){
+    for(var i=0;i<N;i++){ q[i]=[0,0,0,1]; wv[i]=[0,0,0]; }
+    t0=0; tRev=0;
+  }
+  function kick(sign){
+    for(var i=0;i<N;i++){
+      var rx=rnd(1), ry=rnd(1), rz=rnd(1), L=Math.hypot(rx,ry,rz)||1;
+      var amp = sign * 1.2 * (0.5 + Math.random());
+      wv[i][0]+=(rx/L)*amp; wv[i][1]+=(ry/L)*amp; wv[i][2]+=(rz/L)*amp;
+    }
+  }
+
+  // 4D Hopf coördinaten
+  var t0=0, tRev=0;
+  function hopfFiberPoint(u, v, t4D){
+    var r = 0.70710678;
+    var X0 = r * Math.cos(v + u);
+    var X1 = r * Math.sin(v + u);
+    var X2 = r * Math.cos(v + t4D);
+    var X3 = r * Math.sin(v + t4D);
+    var d = Math.max(0.12, 1.0 - X0);
+    return [X1/d, X2/d, X3/d];
+  }
+
+  function resize(){
+    var dpr=Math.min(2,window.devicePixelRatio||1);
+    var W=Math.floor(innerWidth*dpr), H=Math.floor(innerHeight*dpr);
+    if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; imgDirty=true; }
+  }
+  window.addEventListener('resize', resize, {passive:true});
+  resize();
+
+  function project2D(p3,W,H){
+    var z=Math.max(-0.95,Math.min(0.95,p3[2])), s=1/(1+DEPTH*z);
+    return [ W*0.5 + p3[0]*s*W*(0.35*ZOOM), H*0.5 + p3[1]*s*W*(0.35*ZOOM) ];
+  }
+
+  // Touch Controller (Momentum, 2-Vinger Zoom & Dubbeltik voor Fullscreen)
+  var touchStartDist=0, touchStartZoom=1, touchLastCenter=null;
+  var touchLastT=0, touchVelX=0, touchVelY=0, pressTimer=null, moved=false;
+  var lastTapTime=0;
+
+  function getTouchDist(t0, t1){ return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY); }
+  function getTouchCenter(t0, t1){ return { x: (t0.clientX + t1.clientX) * 0.5, y: (t0.clientY + t1.clientY) * 0.5 }; }
+
+  cv.addEventListener('touchstart', function(e){
+    moved = false; touchLastT = performance.now(); touchVelX = 0; touchVelY = 0;
+    if(e.touches.length === 1){
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(function(){ if(!moved) setClean(!clean); }, 700);
+      touchLastCenter = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if(e.touches.length === 2){
+      clearTimeout(pressTimer);
+      touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+      touchStartZoom = ZOOM;
+      touchLastCenter = getTouchCenter(e.touches[0], e.touches[1]);
+    }
+  }, {passive: false});
+
+  cv.addEventListener('touchmove', function(e){
+    e.preventDefault();
+    var now = performance.now(), dt = Math.max(0.001, (now - touchLastT) / 1000); touchLastT = now;
+    if(e.touches.length === 2){
+      moved = true; clearTimeout(pressTimer);
+      var curDist = getTouchDist(e.touches[0], e.touches[1]);
+      if(touchStartDist > 0){
+        ZOOM = Math.max(0.5, Math.min(2.0, touchStartZoom * (curDist / touchStartDist)));
+        $('slZoom').value = ZOOM.toFixed(2); $('valZoom').textContent = ZOOM.toFixed(2);
+      }
+      var center = getTouchCenter(e.touches[0], e.touches[1]);
+      var dx = center.x - touchLastCenter.x, dy = center.y - touchLastCenter.y;
+      touchLastCenter = center;
+      touchVelX = touchVelX * 0.3 + (dx/dt) * 0.7; touchVelY = touchVelY * 0.3 + (dy/dt) * 0.7;
+      for(var i=0; i<N; i++){ wv[i][1] += dx * 0.004; wv[i][0] -= dy * 0.004; }
+    } else if(e.touches.length === 1){
+      var x = e.touches[0].clientX, y = e.touches[0].clientY;
+      var dx = x - touchLastCenter.x, dy = y - touchLastCenter.y;
+      if(Math.hypot(dx, dy) > 4){ moved = true; clearTimeout(pressTimer); }
+      touchLastCenter = { x: x, y: y };
+      touchVelX = touchVelX * 0.3 + (dx/dt) * 0.7; touchVelY = touchVelY * 0.3 + (dy/dt) * 0.7;
+      for(var i=0; i<N; i++){ wv[i][1] += dx * 0.003; wv[i][0] -= dy * 0.003; }
+    }
+  }, {passive: false});
+
+  cv.addEventListener('touchend', function(e){
+    clearTimeout(pressTimer);
+    var now = performance.now();
+    var tapGap = now - lastTapTime;
+    if(!moved && tapGap < 320 && tapGap > 0){
+      toggleFullscreen();
+      lastTapTime = 0;
+      return;
+    }
+    lastTapTime = now;
+
+    if(moved && Math.hypot(touchVelX, touchVelY) > 50){
+      for(var i=0; i<N; i++){ wv[i][1] += touchVelX * 0.0006; wv[i][0] -= touchVelY * 0.0006; }
+    }
+    if(e.touches.length === 1){ touchLastCenter = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+  }, {passive: false});
+
+  // Muis fallback
+  var isMouseDown=false, lastMouse={x:0,y:0};
+  cv.addEventListener('mousedown', function(e){
+    isMouseDown=true; moved=false; lastMouse={x:e.clientX, y:e.clientY};
+    clearTimeout(pressTimer); pressTimer=setTimeout(function(){ if(!moved) setClean(!clean); }, 700);
+  });
+  window.addEventListener('mousemove', function(e){
+    if(!isMouseDown) return;
+    var dx = e.clientX - lastMouse.x, dy = e.clientY - lastMouse.y;
+    if(Math.hypot(dx,dy)>3){ moved=true; clearTimeout(pressTimer); }
+    lastMouse={x:e.clientX, y:e.clientY};
+    for(var i=0; i<N; i++){ wv[i][1] += dx * 0.003; wv[i][0] -= dy * 0.003; }
+  });
+  window.addEventListener('mouseup', function(){ isMouseDown=false; clearTimeout(pressTimer); });
+
+  // Render routine
+  var effSEG=SEG;
+  function drawManifold(W, H){
+    ctx.lineJoin="round"; ctx.lineCap="round"; ctx.lineWidth=LINEW;
+    var ch = Math.max(1, CHUNK|0);
+    var isHopf = (GEOM==='hopf');
+
+    for(var i=0; i<N; i++){
+      var uRel = i / N;
+      var uAngle = uRel * Math.PI * 2;
+      var R = radii[i];
+      var qRing = q[i];
+
+      for(var j=0; j<effSEG; j+=ch){
+        var mid = j + ch * 0.5;
+        var vRel = mid / effSEG;
+        var rgb;
+
+        if(TEX==='spectrum'){
+          var hue = (uRel * 360 + vRel * 120 + t0 * 20) % 360;
+          ctx.strokeStyle = 'hsl('+hue+',85%,60%)';
+        } else {
+          rgb = sampleRGB_UV(uRel, vRel);
+          ctx.strokeStyle = 'rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
+        }
+
+        ctx.beginPath();
+        var start = j, end = Math.min(effSEG, j + ch);
+        for(var tStep=start; tStep<=end; tStep++){
+          var vAngle = (tStep / effSEG) * Math.PI * 2;
+          var p3;
+
+          if(isHopf){
+            var pHopf = hopfFiberPoint(uAngle, vAngle, t0);
+            if(KNOT > 0.001){
+              var pRot = qrot(qRing, pHopf);
+              p3 = [
+                pHopf[0]*(1.0-KNOT) + pRot[0]*KNOT,
+                pHopf[1]*(1.0-KNOT) + pRot[1]*KNOT,
+                pHopf[2]*(1.0-KNOT) + pRot[2]*KNOT
+              ];
+            } else {
+              p3 = pHopf;
+            }
+          } else {
+            p3 = qrot(qRing, [Math.cos(vAngle)*R, Math.sin(vAngle)*R, 0]);
+          }
+
+          var p2 = project2D(p3, W, H);
+          if(tStep === start) ctx.moveTo(p2[0], p2[1]); else ctx.lineTo(p2[0], p2[1]);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+
+  alloc();
+  startCam();
+
+  var last=performance.now();
+  function frame(ts){
+    var now=ts||performance.now(), dt=Math.min(1/30, Math.max(0.001, (now-last)/1000)); last=now;
+
+    if(!paused){
+      var revFactor = 1.0;
+      if(AUTO_REV){
+        tRev += dt;
+        revFactor = Math.sin((2 * Math.PI * tRev) / Math.max(0.5, T_REV));
+      }
+
+      for(var i=0; i<N; i++){
+        var wl = (i>0) ? wv[i-1] : wv[i];
+        var wr = (i<N-1) ? wv[i+1] : wv[i];
+        var cx = K * (wl[0] + wr[0] - 2*wv[i][0]);
+        var cy = K * (wl[1] + wr[1] - 2*wv[i][1]);
+        var cz = K * (wl[2] + wr[2] - 2*wv[i][2]);
+        var nx = rnd(RNOISE), ny = rnd(RNOISE), nz = rnd(RNOISE);
+
+        wv[i][0] += (cx + nx - D * wv[i][0]) * dt;
+        wv[i][1] += (cy + ny - D * wv[i][1]) * dt;
+        wv[i][2] += (cz + nz - D * wv[i][2]) * dt;
+      }
+
+      if(DRIVE && N > 0){
+        var axis = (AXIS==='x') ? [1,0,0] : ((AXIS==='y') ? [0,1,0] : [0,0,1]);
+        var targetW = OMEGA * driveDir * revFactor;
+        var curW = wv[0][0]*axis[0] + wv[0][1]*axis[1] + wv[0][2]*axis[2];
+        var err = targetW - curW;
+        wv[0][0] += axis[0] * GAIN * err * dt;
+        wv[0][1] += axis[1] * GAIN * err * dt;
+        wv[0][2] += axis[2] * GAIN * err * dt;
+      }
+
+      if(REWIND){
+        for(var k=0; k<N; k++){
+          var rv = rotvecToIdentity(q[k]);
+          wv[k][0] += (-RW_GAIN * rv[0]) * dt;
+          wv[k][1] += (-RW_GAIN * rv[1]) * dt;
+          wv[k][2] += (-RW_GAIN * rv[2]) * dt;
+        }
+      }
+
+      for(var j=0; j<N; j++){ qstep(q[j], wv[j], dt); }
+      t0 += (OMEGA * 0.45 * driveDir * revFactor) * dt;
+    }
+
+    resize();
+    var W=cv.width, H=cv.height;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    if(TEX==='imageWrap') refreshSourceFromImage();
+
+    drawManifold(W, H);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
